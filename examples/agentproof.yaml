@@ -1,0 +1,12 @@
+version: 1
+
+rules:
+  - agent: example-agent
+    path:
+      prefix: /docs/
+    action: allow
+
+  - agent: example-agent
+    path:
+      exact: /admin
+    action: deny
