@@ -11,6 +11,15 @@ import type {
 } from '../identity/index.ts';
 import type { PolicyEvaluation, PolicyResult } from '../robots/index.ts';
 
+// Present only for a signed request. `signature: 'present'` states that the
+// request carried an AgentProof signature; `externalVerification` stays
+// 'not-confirmed' here — `validate` never claims external recognition, which
+// only the dedicated verifier test can establish.
+export type ReportIdentity = {
+  signature: 'present' | 'absent';
+  externalVerification: 'not-confirmed';
+};
+
 export type ValidationReport = {
   url: string;
   profile: {
@@ -25,6 +34,7 @@ export type ValidationReport = {
     status: number;
   };
   policy: PolicyResult;
+  identity?: ReportIdentity;
   limitations: readonly string[];
 };
 
@@ -35,17 +45,24 @@ const TOKEN_ONLY_LIMITATION =
 const SUCCESS_STATUS_LIMITATION =
   'The server returned a successful HTTP status. This does not prove that the expected content was present.';
 
+const SIGNED_LIMITATION =
+  'The request was signed with the AgentProof key. This proves possession of the key, not external recognition; the signature was not confirmed by any verifier here.';
+
 export function buildValidationReport(
   url: string,
   profile: AgentProfile,
   observation: HttpObservation,
   policy: PolicyEvaluation,
+  identity?: ReportIdentity,
 ): ValidationReport {
   const access = classifyAccessObservation(observation);
 
   const limitations: string[] = [];
   if (profile.assurance === 'claimed') {
     limitations.push(CLAIMED_LIMITATION);
+  }
+  if (identity !== undefined && identity.signature === 'present') {
+    limitations.push(SIGNED_LIMITATION);
   }
   if (profile.requestFidelity === 'token-only') {
     limitations.push(TOKEN_ONLY_LIMITATION);
@@ -69,6 +86,7 @@ export function buildValidationReport(
       status: observation.status,
     },
     policy: policy.result,
+    ...(identity !== undefined ? { identity } : {}),
     limitations,
   };
 }

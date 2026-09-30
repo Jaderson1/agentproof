@@ -49,6 +49,13 @@ export function renderValidationReport(report: ValidationReport): string {
     'Request identity',
     REQUEST_IDENTITY_LABELS[report.profile.requestFidelity],
     '',
+    ...(report.identity !== undefined
+      ? [
+          'External verification',
+          shout(report.identity.externalVerification),
+          '',
+        ]
+      : []),
     'HTTP',
     httpLine(report.access.status),
     '',
