@@ -3,3 +3,8 @@ dist/
 coverage/
 *.log
 .DS_Store
+
+# AgentProof identity / secret key material — never commit private keys.
+.agentproof/
+*.private.jwk
+*.private.pem
