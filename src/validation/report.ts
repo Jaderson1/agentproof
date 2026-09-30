@@ -9,6 +9,7 @@ import type {
   IdentityAssurance,
   RequestIdentityFidelity,
 } from '../identity/index.ts';
+import type { PolicyEvaluation, PolicyResult } from '../robots/index.ts';
 
 export type ValidationReport = {
   url: string;
@@ -23,9 +24,7 @@ export type ValidationReport = {
     signal: AccessSignal;
     status: number;
   };
-  policy: {
-    status: 'unknown';
-  };
+  policy: PolicyResult;
   limitations: readonly string[];
 };
 
@@ -33,8 +32,6 @@ const CLAIMED_LIMITATION =
   'This request only claimed the agent identity through request metadata; it was not cryptographically verified.';
 const TOKEN_ONLY_LIMITATION =
   'The request used only the documented/known agent token rather than a verified vendor request fingerprint.';
-const POLICY_LIMITATION =
-  'Declared site policy was not evaluated in this version.';
 const SUCCESS_STATUS_LIMITATION =
   'The server returned a successful HTTP status. This does not prove that the expected content was present.';
 
@@ -42,6 +39,7 @@ export function buildValidationReport(
   url: string,
   profile: AgentProfile,
   observation: HttpObservation,
+  policy: PolicyEvaluation,
 ): ValidationReport {
   const access = classifyAccessObservation(observation);
 
@@ -52,7 +50,7 @@ export function buildValidationReport(
   if (profile.requestFidelity === 'token-only') {
     limitations.push(TOKEN_ONLY_LIMITATION);
   }
-  limitations.push(POLICY_LIMITATION);
+  limitations.push(policy.limitation);
   if (access.verdict === 'accessible') {
     limitations.push(SUCCESS_STATUS_LIMITATION);
   }
@@ -70,7 +68,7 @@ export function buildValidationReport(
       signal: access.signal,
       status: observation.status,
     },
-    policy: { status: 'unknown' },
+    policy: policy.result,
     limitations,
   };
 }

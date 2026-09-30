@@ -6,6 +6,7 @@ import {
   getAgentProfile,
   listAgentProfiles,
 } from '../identity/index.ts';
+import { evaluateRobotsPolicy, fetchRobots } from '../robots/index.ts';
 import {
   buildValidationReport,
   renderValidationReport,
@@ -48,24 +49,43 @@ export function createProgram({
     .description('Diagnose access to a URL under one agent profile.')
     .argument('<url>', 'the URL to request')
     .option('--as <profile>', 'agent profile id', 'unclaimed')
-    .action(async (url: string, options: { as: string }) => {
+    .option('--json', 'emit the diagnosis as JSON on stdout', false)
+    .action(async (url: string, options: { as: string; json: boolean }) => {
       const profile = getAgentProfile(options.as);
       if (profile === undefined) {
-        const ids = listAgentProfiles()
-          .map((candidate) => candidate.id)
-          .join(', ');
-        stderr(`Unknown profile: ${options.as}\n`);
-        stderr(`Available profiles: ${ids}\n`);
+        if (options.json) {
+          stdout(
+            `${JSON.stringify({ error: `Unknown profile: ${options.as}` })}\n`,
+          );
+        } else {
+          const ids = listAgentProfiles()
+            .map((candidate) => candidate.id)
+            .join(', ');
+          stderr(`Unknown profile: ${options.as}\n`);
+          stderr(`Available profiles: ${ids}\n`);
+        }
         setExitCode(3);
         return;
       }
 
+      const headers = buildRequestHeaders(profile);
+      // robots.txt is best-effort: its failure alone yields policy 'unknown',
+      // never a fatal exit. Only the target probe can fail the validation.
+      const robots = await fetchRobots(url, { headers });
+
       try {
-        const observation = await probeHttp(url, {
-          headers: buildRequestHeaders(profile),
-        });
-        const report = buildValidationReport(url, profile, observation);
-        stdout(`${renderValidationReport(report)}\n`);
+        const observation = await probeHttp(url, { headers });
+        const policy = evaluateRobotsPolicy(
+          robots,
+          profile.robotsUserAgent,
+          url,
+        );
+        const report = buildValidationReport(url, profile, observation, policy);
+        stdout(
+          options.json
+            ? `${JSON.stringify(report)}\n`
+            : `${renderValidationReport(report)}\n`,
+        );
         setExitCode(validationExitCode(report));
       } catch (error) {
         const detail =
@@ -74,7 +94,11 @@ export function createProgram({
             : error instanceof Error
               ? error.message
               : String(error);
-        stderr(`${detail}\n`);
+        if (options.json) {
+          stdout(`${JSON.stringify({ error: detail })}\n`);
+        } else {
+          stderr(`${detail}\n`);
+        }
         setExitCode(3);
       }
     });

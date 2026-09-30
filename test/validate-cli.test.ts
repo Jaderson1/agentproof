@@ -8,10 +8,24 @@ const requests: { path: string; userAgent: string | undefined }[] = [];
 let server: Server;
 let base = '';
 
+const ROBOTS = [
+  'User-agent: OAI-SearchBot',
+  'Allow: /',
+  '',
+  'User-agent: *',
+  'Disallow: /private/',
+  '',
+].join('\n');
+
 beforeAll(async () => {
   server = createServer((req, res) => {
     const path = req.url ?? '';
     requests.push({ path, userAgent: req.headers['user-agent'] });
+    if (path === '/robots.txt') {
+      res.writeHead(200, { 'content-type': 'text/plain' });
+      res.end(ROBOTS);
+      return;
+    }
     if (path === '/ok') {
       res.writeHead(200);
       res.end('body');
@@ -83,7 +97,9 @@ describe('validate command', () => {
     expect(out).toContain('Request identity\nAGENTPROOF');
     expect(out).toContain('ACCESSIBLE');
     expect(exitCode).toBe(0);
+    // The target is the last request; robots.txt is fetched first.
     expect(requests.at(-1)?.userAgent).toBe('AgentProof');
+    expect(requests.some((r) => r.path === '/robots.txt')).toBe(true);
   });
 
   it('sends the claimed token User-Agent for a vendor profile', async () => {
@@ -97,6 +113,50 @@ describe('validate command', () => {
     expect(out).toContain('Identity\nCLAIMED');
     expect(out).toContain('Request identity\nTOKEN-ONLY');
     expect(requests.at(-1)?.userAgent).toBe('OAI-SearchBot');
+  });
+
+  it('reports the robots policy and matched rule in the text output', async () => {
+    const { out } = await run([
+      'validate',
+      `${base}/ok`,
+      '--as',
+      'oai-searchbot',
+    ]);
+    expect(out).toContain('Policy\nALLOWED');
+    expect(out).toContain('Policy source\nrobots.txt');
+    expect(out).toContain('User-agent: OAI-SearchBot');
+  });
+
+  it('emits only valid JSON with --json', async () => {
+    const { out, err, exitCode } = await run([
+      'validate',
+      `${base}/ok`,
+      '--as',
+      'oai-searchbot',
+      '--json',
+    ]);
+    expect(err).toBe('');
+    const parsed = JSON.parse(out) as {
+      url: string;
+      profile: { id: string; assurance: string; requestFidelity: string };
+      access: { verdict: string; signal: string; status: number };
+      policy: { status: string; source: string; matchedRule?: unknown };
+    };
+    expect(parsed.profile.id).toBe('oai-searchbot');
+    expect(parsed.profile.assurance).toBe('claimed');
+    expect(parsed.profile.requestFidelity).toBe('token-only');
+    expect(parsed.access.verdict).toBe('accessible');
+    expect(parsed.access.signal).toBe('ok');
+    expect(parsed.access.status).toBe(200);
+    expect(parsed.policy.status).toBe('allowed');
+    expect(parsed.policy.source).toBe('robots.txt');
+    expect(parsed.policy.matchedRule).toEqual({
+      agent: 'OAI-SearchBot',
+      directive: 'allow',
+      path: '/',
+    });
+    expect(out).not.toContain('AgentProof Validation');
+    expect(exitCode).toBe(0);
   });
 
   it('exits 0 for a denied result', async () => {
@@ -118,6 +178,19 @@ describe('validate command', () => {
       'nope',
     ]);
     expect(err).toContain('Unknown profile');
+    expect(exitCode).toBe(3);
+  });
+
+  it('emits a JSON error object for an unknown profile with --json', async () => {
+    const { out, err, exitCode } = await run([
+      'validate',
+      `${base}/ok`,
+      '--as',
+      'nope',
+      '--json',
+    ]);
+    expect(err).toBe('');
+    expect(JSON.parse(out)).toEqual({ error: 'Unknown profile: nope' });
     expect(exitCode).toBe(3);
   });
 

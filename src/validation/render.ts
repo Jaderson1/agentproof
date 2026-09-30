@@ -34,7 +34,7 @@ function httpLine(status: number): string {
 }
 
 export function renderValidationReport(report: ValidationReport): string {
-  const lines = [
+  const lines: string[] = [
     'AgentProof Validation',
     '',
     'Target',
@@ -61,8 +61,24 @@ export function renderValidationReport(report: ValidationReport): string {
     'Policy',
     shout(report.policy.status),
     '',
+    'Policy source',
+    report.policy.source,
+    '',
+  ];
+
+  const matched = report.policy.matchedRule;
+  if (matched !== undefined) {
+    lines.push(
+      'Matched rule',
+      `User-agent: ${matched.agent}`,
+      `${matched.directive === 'allow' ? 'Allow' : 'Disallow'}: ${matched.path}`,
+      '',
+    );
+  }
+
+  lines.push(
     'Limitations',
     ...report.limitations.map((limitation) => `- ${limitation}`),
-  ];
+  );
   return lines.join('\n');
 }

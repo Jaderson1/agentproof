@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest';
 import type { HttpObservation } from '../src/http/index.ts';
 import { getAgentProfile, type AgentProfile } from '../src/identity/index.ts';
 import {
+  evaluateRobotsPolicy,
+  type PolicyEvaluation,
+} from '../src/robots/index.ts';
+import {
   buildValidationReport,
   renderValidationReport,
   validationExitCode,
@@ -24,6 +28,33 @@ const profile = (id: string): AgentProfile => {
   return found;
 };
 
+const noRobots = (
+  ua = 'AgentProof',
+  target = 'http://example.test/a',
+): PolicyEvaluation =>
+  evaluateRobotsPolicy(
+    {
+      kind: 'unavailable',
+      url: 'http://example.test/robots.txt',
+      status: 404,
+      reason: 'not-found',
+    },
+    ua,
+    target,
+  );
+
+const robotsAllow = (): PolicyEvaluation =>
+  evaluateRobotsPolicy(
+    {
+      kind: 'available',
+      url: 'http://example.test/robots.txt',
+      status: 200,
+      body: 'User-agent: OAI-SearchBot\nAllow: /docs/\n',
+    },
+    'OAI-SearchBot',
+    'http://example.test/docs/page',
+  );
+
 const TOKEN_ONLY_LIMITATION =
   'The request used only the documented/known agent token rather than a verified vendor request fingerprint.';
 const CLAIMED_LIMITATION =
@@ -35,6 +66,7 @@ describe('buildValidationReport', () => {
       'http://example.test/a',
       profile('oai-searchbot'),
       obs(403),
+      noRobots('OAI-SearchBot'),
     );
     expect(report.access).toEqual({
       verdict: 'denied',
@@ -44,10 +76,11 @@ describe('buildValidationReport', () => {
     expect(report.profile.assurance).toBe('claimed');
     expect(report.profile.requestFidelity).toBe('token-only');
     expect(report.policy.status).toBe('unknown');
+    expect(report.policy.source).toBe('robots.txt');
     expect(report.limitations).toContain(CLAIMED_LIMITATION);
     expect(report.limitations).toContain(TOKEN_ONLY_LIMITATION);
     expect(report.limitations).toContain(
-      'Declared site policy was not evaluated in this version.',
+      'robots.txt was not found; declared policy is unknown.',
     );
   });
 
@@ -56,6 +89,7 @@ describe('buildValidationReport', () => {
       'http://example.test/a',
       profile('unclaimed'),
       obs(200),
+      noRobots(),
     );
     expect(report.access.verdict).toBe('accessible');
     expect(report.profile.assurance).toBe('unclaimed');
@@ -66,13 +100,35 @@ describe('buildValidationReport', () => {
     expect(report.limitations).not.toContain(CLAIMED_LIMITATION);
     expect(report.limitations).not.toContain(TOKEN_ONLY_LIMITATION);
   });
+
+  it('carries a resolved robots policy as an independent axis from access', () => {
+    const report = buildValidationReport(
+      'http://example.test/docs/page',
+      profile('oai-searchbot'),
+      obs(403),
+      robotsAllow(),
+    );
+    // Policy allowed while access is denied — the two axes must not collapse.
+    expect(report.policy.status).toBe('allowed');
+    expect(report.policy.matchedRule).toEqual({
+      agent: 'OAI-SearchBot',
+      directive: 'allow',
+      path: '/docs/',
+    });
+    expect(report.access.verdict).toBe('denied');
+  });
 });
 
 describe('validationExitCode', () => {
   it('maps accessible and denied to 0, inconclusive to 2', () => {
     const at = (status: number): number =>
       validationExitCode(
-        buildValidationReport('http://x/', profile('unclaimed'), obs(status)),
+        buildValidationReport(
+          'http://x/',
+          profile('unclaimed'),
+          obs(status),
+          noRobots('AgentProof', 'http://x/'),
+        ),
       );
     expect(at(200)).toBe(0);
     expect(at(403)).toBe(0);
@@ -87,6 +143,7 @@ describe('renderValidationReport', () => {
         'http://example.test/a',
         profile('oai-searchbot'),
         obs(403),
+        noRobots('OAI-SearchBot'),
       ),
     );
     expect(text).toContain('AgentProof Validation');
@@ -97,6 +154,22 @@ describe('renderValidationReport', () => {
     expect(text).toContain('Identity\nCLAIMED');
     expect(text).toContain('Request identity\nTOKEN-ONLY');
     expect(text).toContain('Policy\nUNKNOWN');
+    expect(text).toContain('Policy source\nrobots.txt');
+  });
+
+  it('renders the matched robots rule when the policy is determined', () => {
+    const text = renderValidationReport(
+      buildValidationReport(
+        'http://example.test/docs/page',
+        profile('oai-searchbot'),
+        obs(200),
+        robotsAllow(),
+      ),
+    );
+    expect(text).toContain('Policy\nALLOWED');
+    expect(text).toContain('Matched rule');
+    expect(text).toContain('User-agent: OAI-SearchBot');
+    expect(text).toContain('Allow: /docs/');
   });
 
   it('renders the unclaimed profile with AGENTPROOF request identity', () => {
@@ -105,6 +178,7 @@ describe('renderValidationReport', () => {
         'http://example.test/a',
         profile('unclaimed'),
         obs(200),
+        noRobots(),
       ),
     );
     expect(text).toContain('Identity\nUNCLAIMED');

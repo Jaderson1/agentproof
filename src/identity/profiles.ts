@@ -18,6 +18,8 @@ export type AgentProfile = {
   };
   assurance: IdentityAssurance;
   requestFidelity: RequestIdentityFidelity;
+  // Product token used for robots.txt group matching (data, not derived).
+  robotsUserAgent: string;
 };
 
 // Vendor profiles carry the bare product token, not a full vendor UA string:
@@ -33,6 +35,7 @@ const PROFILES: readonly AgentProfile[] = [
     claim: {},
     assurance: 'unclaimed',
     requestFidelity: 'tool',
+    robotsUserAgent: 'AgentProof',
   },
   {
     id: 'gptbot',
@@ -41,6 +44,7 @@ const PROFILES: readonly AgentProfile[] = [
     claim: { provider: 'OpenAI', purpose: 'crawl' },
     assurance: 'claimed',
     requestFidelity: 'token-only',
+    robotsUserAgent: 'GPTBot',
   },
   {
     id: 'oai-searchbot',
@@ -49,6 +53,7 @@ const PROFILES: readonly AgentProfile[] = [
     claim: { provider: 'OpenAI', purpose: 'search' },
     assurance: 'claimed',
     requestFidelity: 'token-only',
+    robotsUserAgent: 'OAI-SearchBot',
   },
   {
     id: 'chatgpt-user',
@@ -57,6 +62,7 @@ const PROFILES: readonly AgentProfile[] = [
     claim: { provider: 'OpenAI', purpose: 'user-fetch' },
     assurance: 'claimed',
     requestFidelity: 'token-only',
+    robotsUserAgent: 'ChatGPT-User',
   },
   {
     id: 'claudebot',
@@ -65,6 +71,7 @@ const PROFILES: readonly AgentProfile[] = [
     claim: { provider: 'Anthropic', purpose: 'crawl' },
     assurance: 'claimed',
     requestFidelity: 'token-only',
+    robotsUserAgent: 'ClaudeBot',
   },
   {
     id: 'claude-searchbot',
@@ -73,6 +80,7 @@ const PROFILES: readonly AgentProfile[] = [
     claim: { provider: 'Anthropic', purpose: 'search' },
     assurance: 'claimed',
     requestFidelity: 'token-only',
+    robotsUserAgent: 'Claude-SearchBot',
   },
   {
     id: 'claude-user',
@@ -81,6 +89,7 @@ const PROFILES: readonly AgentProfile[] = [
     claim: { provider: 'Anthropic', purpose: 'user-fetch' },
     assurance: 'claimed',
     requestFidelity: 'token-only',
+    robotsUserAgent: 'Claude-User',
   },
 ];
 

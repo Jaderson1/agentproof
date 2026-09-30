@@ -46,6 +46,12 @@ describe('agent profiles', () => {
     });
   });
 
+  it('carries a robots product token for policy matching', () => {
+    expect(profile('unclaimed').robotsUserAgent).toBe('AgentProof');
+    expect(profile('oai-searchbot').robotsUserAgent).toBe('OAI-SearchBot');
+    expect(profile('claudebot').robotsUserAgent).toBe('ClaudeBot');
+  });
+
   it('returns undefined for an unknown profile', () => {
     expect(getAgentProfile('does-not-exist')).toBeUndefined();
   });
