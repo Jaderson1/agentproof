@@ -52,6 +52,14 @@ describe('agent profiles', () => {
     expect(profile('claudebot').robotsUserAgent).toBe('ClaudeBot');
   });
 
+  it('exposes a signed AgentProof profile that never claims verification', () => {
+    const signed = profile('agentproof-signed');
+    expect(signed.assurance).toBe('signed');
+    expect(signed.requestFidelity).toBe('tool');
+    expect(signed.claim.provider).toBeUndefined();
+    expect(signed.robotsUserAgent).toBe('AgentProof');
+  });
+
   it('returns undefined for an unknown profile', () => {
     expect(getAgentProfile('does-not-exist')).toBeUndefined();
   });

@@ -1,6 +1,6 @@
 export type AgentPurpose = 'crawl' | 'search' | 'user-fetch' | 'generic';
 
-export type IdentityAssurance = 'unclaimed' | 'claimed' | 'verified';
+export type IdentityAssurance = 'unclaimed' | 'claimed' | 'signed' | 'verified';
 
 export type RequestIdentityFidelity =
   'tool' | 'vendor-documented' | 'token-only';
@@ -34,6 +34,18 @@ const PROFILES: readonly AgentProfile[] = [
     request: {},
     claim: {},
     assurance: 'unclaimed',
+    requestFidelity: 'tool',
+    robotsUserAgent: 'AgentProof',
+  },
+  {
+    // AgentProof's own identity, cryptographically signed with our key.
+    // 'signed' proves possession of the key, not external recognition — it is
+    // never 'verified' until a verifier (e.g. Cloudflare) confirms the key.
+    id: 'agentproof-signed',
+    label: 'AgentProof signed agent',
+    request: {},
+    claim: {},
+    assurance: 'signed',
     requestFidelity: 'tool',
     robotsUserAgent: 'AgentProof',
   },
