@@ -125,6 +125,7 @@ describe('validate command', () => {
     expect(out).toContain('Policy\nALLOWED');
     expect(out).toContain('Policy source\nrobots.txt');
     expect(out).toContain('User-agent: OAI-SearchBot');
+    expect(out).toContain('Authorization\nCAN_PROCEED');
   });
 
   it('emits only valid JSON with --json', async () => {
@@ -141,7 +142,13 @@ describe('validate command', () => {
       profile: { id: string; assurance: string; requestFidelity: string };
       access: { verdict: string; signal: string; status: number };
       policy: { status: string; source: string; matchedRule?: unknown };
+      authorization: { decision: string; reason: string; basis: string };
     };
+    expect(parsed.authorization).toEqual({
+      decision: 'CAN_PROCEED',
+      reason: 'ok',
+      basis: 'http',
+    });
     expect(parsed.profile.id).toBe('oai-searchbot');
     expect(parsed.profile.assurance).toBe('claimed');
     expect(parsed.profile.requestFidelity).toBe('token-only');

@@ -1,4 +1,8 @@
 import {
+  decideAuthorization,
+  type AuthorizationResult,
+} from '../authorization/index.ts';
+import {
   classifyAccessObservation,
   type AccessSignal,
   type AccessVerdict,
@@ -34,6 +38,8 @@ export type ValidationReport = {
     status: number;
   };
   policy: PolicyResult;
+  // The final, AI-facing decision axis, distinct from identity/access/policy.
+  authorization: AuthorizationResult;
   identity?: ReportIdentity;
   limitations: readonly string[];
 };
@@ -56,6 +62,12 @@ export function buildValidationReport(
   identity?: ReportIdentity,
 ): ValidationReport {
   const access = classifyAccessObservation(observation);
+  const authorization = decideAuthorization(
+    observation,
+    access,
+    policy.result,
+    url,
+  );
 
   const limitations: string[] = [];
   if (profile.assurance === 'claimed') {
@@ -86,6 +98,7 @@ export function buildValidationReport(
       status: observation.status,
     },
     policy: policy.result,
+    authorization,
     ...(identity !== undefined ? { identity } : {}),
     limitations,
   };

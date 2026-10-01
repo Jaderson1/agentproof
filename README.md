@@ -6,13 +6,26 @@ AgentProof is a local CLI that diagnoses whether an AI agent can access a web re
 
 ## What it reports
 
-Three separate axes, never collapsed into one:
+Four separate axes, never collapsed into one:
 
 - **ACCESS** — `accessible` / `denied` / `inconclusive`, plus a `signal` (`ok`, `auth-required`, `access-denied`, `bot-challenge`, `rate-limited`, …). Observed from the HTTP response to the target URL.
 - **IDENTITY** — `unclaimed` / `claimed` / `signed` / `verified`. A request carrying `User-Agent: GPTBot` is only a **claimed** GPTBot; it is never presented as the real vendor crawler. `signed` means AgentProof signed the request with its own key (proof of key possession); `verified` is reserved for external recognition and is never asserted by this tool.
 - **POLICY** — `allowed` / `disallowed` / `unknown`, derived from the site's `robots.txt`. This is the site's **declared** preference for the chosen agent; it never proves or predicts actual access.
+- **AUTHORIZATION** — the AI-facing verdict (see below), one of `CAN_PROCEED` / `NEEDS_USER` / `NOT_AUTHORIZED` / `INFRA_PROBLEM` / `AMBIGUOUS`, synthesised from the other axes. It never implies permission the other axes didn't show.
 
-The three axes are independent: a resource can be `POLICY allowed` yet `ACCESS denied`, or `POLICY disallowed` yet `ACCESS accessible`. Reporting that divergence is the point — the axes are never merged.
+The axes are independent: a resource can be `POLICY allowed` yet `ACCESS denied`, or `POLICY disallowed` yet `ACCESS accessible`. Reporting that divergence is the point — the axes are never merged.
+
+### Authorization decision axis
+
+A single verdict an AI can act on, with a machine `reason` and a `basis` (`http` or `robots`):
+
+- `CAN_PROCEED` — a successful response with no conflicting signal.
+- `NEEDS_USER` — the request needs the human: authentication (`401`), a login/MFA redirect, or an **interactive bot challenge / CAPTCHA**. A challenge outranks everything (even a `200`), and AgentProof never tries to solve or evade it — it stops and reports.
+- `NOT_AUTHORIZED` — the agent is not authorized. With `basis: "robots"` this means **not authorized by the site's _declared_ policy**: per [RFC 9309](https://www.rfc-editor.org/rfc/rfc9309), `robots.txt` is a declared crawler preference, **not** an HTTP access-authorization mechanism — so a `robots` denial is not the same as an HTTP `401`/`403`. Declared policy is an independent axis; a future user-delegation step must **not** silently override it.
+- `INFRA_PROBLEM` — transient (`429`, `5xx`, origin/edge errors).
+- `AMBIGUOUS` — cannot be determined safely: a cross-origin redirect, a same-origin **redirect that was observed but not followed** (`validate` does not follow redirects, so the final resource was not accessed), a forbidden response behind an edge/WAF with no determinable cause, or an unrecognised response.
+
+This axis only reads signals AgentProof already collects; it does not scrape HTML to detect CAPTCHAs.
 
 It observes; it never bypasses. It can detect a bot challenge (e.g. `cf-mitigated: challenge`) and report it as inconclusive, but it never attempts to solve or circumvent one, and it never tries a `Disallow`ed path a different way.
 

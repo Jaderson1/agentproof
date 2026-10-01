@@ -5,4 +5,4 @@ export type {
   AccessSignal,
   AccessClassification,
 } from './classify.ts';
-export { classifyAccessObservation } from './classify.ts';
+export { classifyAccessObservation, hasChallengeEvidence } from './classify.ts';

@@ -19,7 +19,7 @@ export type AccessClassification = {
   signal: AccessSignal;
 };
 
-function hasChallengeEvidence(observation: HttpObservation): boolean {
+export function hasChallengeEvidence(observation: HttpObservation): boolean {
   return observation.cfMitigated === 'challenge';
 }
 
