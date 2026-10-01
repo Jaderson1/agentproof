@@ -117,11 +117,16 @@ agentproof identity test
 
 # 4. Send a signed request while diagnosing a target
 agentproof validate https://example.com --as agentproof-signed --identity .agentproof/identity.json
+
+# List selectable identities (for an agent to choose ONE before a request)
+agentproof identity list --json
 ```
 
-The private key is never printed, never sent to a verifier, and never written into the exported directory, the directory-response headers, the report, or JSON output. `.agentproof/` and `*.private.{jwk,pem}` are git-ignored.
+`identity list` reports the built-in profiles with honest flags: vendor profiles are `diagnosticOnly` (present only to diagnose how a site treats that claimed UA, never to impersonate), and nothing is ever marked `verified`. The intended flow is **discover → choose one authorized identity → one request**, never "try one, then fake another until something passes".
 
-`identity test` exit codes: `0` verified, `2` unverified or inconclusive, `3` malformed signature or network error. A **`401` is read as `unverified`, never as a specific cause** — per Cloudflare it can mean the key is unrecognized _or_ that a known key failed verification, and AgentProof does not guess which.
+The private key is never printed, never sent to a verifier, and never written into the exported directory, the directory-response headers, the report, or JSON output. `.agentproof/` and `*.private.{jwk,pem}` are git-ignored. `identity init` refuses to overwrite an existing identity unless `--force`, so a stray re-run cannot silently destroy a registered key.
+
+`identity test` exit codes: `0` verified, `2` unverified or inconclusive, `3` malformed signature or network error. Per Cloudflare's current docs, **`200`** = key known and message verified, **`401`** = message well-formed but key not (yet) recognized, **`400`** = otherwise (malformed, or a recognized key whose signature did not verify). AgentProof reports a `401` as **`unverified`** — a verification outcome, not a claim about the verifier's internal state.
 
 ### The key directory is a _signed response_, not just a file
 
@@ -143,15 +148,28 @@ The directory must be reachable at the **origin root** well-known path of your `
 https://your-domain.example/.well-known/http-message-signatures-directory
 ```
 
-Because the response must be **signed** (not just served with the right `Content-Type`), a plain static host is **not sufficient on its own**. Minimal legitimate options:
+Because the response must be **signed** (not just served with the right `Content-Type`), a plain static host with no header control is **not sufficient**. The recommended deployment is a **secretless Cloudflare Worker** ([`deploy/cloudflare-worker/`](deploy/cloudflare-worker/)):
 
-- **Dynamic (recommended): a Cloudflare Worker / Pages Function or your own small server** that returns the JWKS body with the `Content-Type`, `Signature-Input`, and `Signature` headers. The private key lives as a runtime secret (e.g. a Worker secret binding), never in git. This re-signs freely, so expiry is a non-issue.
-- **Static with pre-computed headers (possible, with caveats):** host the `export-directory` body and attach the `directory-response` headers (e.g. Cloudflare Pages `_headers`, or any host that lets you set arbitrary response headers).
-  - **How long:** only until the signature's `expires` (default 7 days; `--expires-in <seconds>` to change).
-  - **How `expires` is renewed:** re-run `identity directory-response` and redeploy the new headers **before** the old ones lapse — e.g. a daily scheduled CI job.
-  - **Limitations:** if you miss a refresh, verification fails until you redeploy; clock skew eats into the window; and GitHub Pages is unsuitable anyway (it can set neither the media type nor a root `/.well-known/` path on a project site).
+- The directory-response signature is **not per-request**, so it is signed **locally** by the CLI and only its **public** result (body + `Signature-Input` + `Signature`) is served. **The private key never reaches the edge** — the Worker holds only public data, has no signing route and no proxy, and 404s everything but the well-known path.
+- **How long / renewal:** the signature carries an `expires` (default 7 days; `--expires-in <seconds>`). Re-run `identity directory-response` and update the Worker's variables **before** it lapses (a scheduled CI job is simplest). If you miss the window, verification fails until you redeploy.
+- **Domain:** a `*.workers.dev` subdomain works for the crawltest test and is not prohibited for submission; a custom domain is a durability/reputation choice, not a requirement.
+- **Zero-code alternative:** Cloudflare Pages with a `_headers` rule can serve the same body and headers. Plain GitHub Pages cannot (no custom media type, no root `/.well-known/` on a project site).
 
-AgentProof only generates the correct body and headers. It does **not** host them, run a server, or deploy anything.
+> A Worker that instead holds the private key and signs per request buys nothing here (the signature is not per-request) and only widens key exposure, so AgentProof does **not** do that.
+
+AgentProof only generates the correct body and headers and ships the Worker source. It does **not** host anything, run a server, or deploy on your behalf.
+
+### Threat model (this phase)
+
+| Risk                                         | Mitigation                                                                                                                                                   |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Private-key leak                             | Key is generated and used only locally, stored `0600` under git-ignored `.agentproof/`, and never in outputs, the patch, logs, the Worker, or the directory. |
+| Compromised Worker / stolen public directory | The edge holds only public data; it cannot sign and there is nothing secret to steal.                                                                        |
+| Signing oracle                               | The Worker has **no** signing route — only `GET` of the well-known path; everything else 404s.                                                               |
+| Replay of a signed agent request             | Short validity window (`created`/`expires`, default 5 min) plus a fresh 64-byte `nonce` per request.                                                         |
+| Stale directory signature                    | Bounded by `expires`; documented refresh-before-lapse. Failure mode is "unverified", never a silent wrong "verified".                                        |
+| Identity abuse / revocation                  | Per-user keys (each user runs their own directory): one key can be rotated/revoked without affecting anyone else — the opposite of a shared global key.      |
+| Unauthorized agent use                       | The private key stays with its owner; `identity list` steers agents to choose one authorized identity rather than cycle through impersonations.              |
 
 ## Development
 

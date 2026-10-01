@@ -90,6 +90,39 @@ describe('identity init', () => {
     expect(out).not.toContain(stored.privateJwk.d);
     expect(out).not.toContain('"d"');
   });
+
+  it('refuses to overwrite an existing identity without --force', async () => {
+    const before = readFileSync(identityPath(), 'utf8');
+    const { err, exitCode } = await run([
+      'identity',
+      'init',
+      '--dir',
+      join(tmp, '.agentproof'),
+    ]);
+    expect(err).toContain('Refusing to overwrite');
+    expect(exitCode).toBe(3);
+    // The existing key must be untouched.
+    expect(readFileSync(identityPath(), 'utf8')).toBe(before);
+  });
+
+  it('replaces the identity only with --force', async () => {
+    const dir = join(mkdtempSync(join(tmpdir(), 'agentproof-force-')), '.a');
+    const file = join(dir, 'identity.json');
+    await run(['identity', 'init', '--dir', dir]);
+    const before = (JSON.parse(readFileSync(file, 'utf8')) as { keyid: string })
+      .keyid;
+    const { exitCode } = await run([
+      'identity',
+      'init',
+      '--dir',
+      dir,
+      '--force',
+    ]);
+    expect(exitCode).toBeUndefined();
+    const after = (JSON.parse(readFileSync(file, 'utf8')) as { keyid: string })
+      .keyid;
+    expect(after).not.toBe(before);
+  });
 });
 
 describe('identity export-directory', () => {
@@ -155,6 +188,29 @@ describe('validate --as agentproof-signed', () => {
     expect(parsed.identity?.signature).toBe('present');
     expect(parsed.identity?.externalVerification).toBe('not-confirmed');
     expect(out).not.toContain('"d"');
+  });
+});
+
+describe('identity list', () => {
+  it('lists profiles with honest flags and never marks anything verified', async () => {
+    const { out } = await run(['identity', 'list', '--json']);
+    const parsed = JSON.parse(out) as {
+      identities: {
+        id: string;
+        assurance: string;
+        usable: boolean;
+        diagnosticOnly?: boolean;
+        requiresIdentityFile?: boolean;
+      }[];
+    };
+    const byId = new Map(parsed.identities.map((e) => [e.id, e]));
+    expect(byId.get('unclaimed')?.usable).toBe(true);
+    expect(byId.get('agentproof-signed')?.assurance).toBe('signed');
+    expect(byId.get('agentproof-signed')?.requiresIdentityFile).toBe(true);
+    expect(byId.get('oai-searchbot')?.diagnosticOnly).toBe(true);
+    expect(parsed.identities.every((e) => e.assurance !== 'verified')).toBe(
+      true,
+    );
   });
 });
 

@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { writeFileSync } from 'node:fs';
+import { existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Command } from 'commander';
 import { exitCodeForStatus } from '../audit/index.ts';
@@ -260,35 +260,46 @@ export function createProgram({
       '--signature-agent <url>',
       'https URL of the origin that will host your key directory',
     )
-    .action((options: { dir: string; signatureAgent?: string }) => {
-      const generated = generateIdentity();
-      const record: StoredIdentity = {
-        version: 1,
-        algorithm: 'ed25519',
-        keyid: generated.keyid,
-        ...(options.signatureAgent !== undefined
-          ? { signatureAgent: options.signatureAgent }
-          : {}),
-        privateJwk: generated.privateJwk,
-        publicJwk: generated.publicJwk,
-      };
-      const path = join(options.dir, 'identity.json');
-      try {
-        saveIdentity(path, record);
-      } catch (error) {
-        stderr(`${errorMessage(error)}\n`);
-        setExitCode(3);
-        return;
-      }
-      stdout(
-        `AgentProof identity created.\nKey ID: ${generated.keyid}\nStored: ${path} (contains your PRIVATE key — do not commit or share)\n`,
-      );
-      if (options.signatureAgent === undefined) {
+    .option('--force', 'overwrite an existing identity file', false)
+    .action(
+      (options: { dir: string; signatureAgent?: string; force: boolean }) => {
+        const path = join(options.dir, 'identity.json');
+        // Never silently destroy an existing (possibly already-registered) key.
+        if (!options.force && existsSync(path)) {
+          stderr(
+            `Refusing to overwrite an existing identity at ${path}. Re-run with --force to replace it (this discards the current key).\n`,
+          );
+          setExitCode(3);
+          return;
+        }
+        const generated = generateIdentity();
+        const record: StoredIdentity = {
+          version: 1,
+          algorithm: 'ed25519',
+          keyid: generated.keyid,
+          ...(options.signatureAgent !== undefined
+            ? { signatureAgent: options.signatureAgent }
+            : {}),
+          privateJwk: generated.privateJwk,
+          publicJwk: generated.publicJwk,
+        };
+        try {
+          saveIdentity(path, record);
+        } catch (error) {
+          stderr(`${errorMessage(error)}\n`);
+          setExitCode(3);
+          return;
+        }
         stdout(
-          'No Signature-Agent set. Re-run with --signature-agent https://your-domain once you know where the directory will be hosted.\n',
+          `AgentProof identity created.\nKey ID: ${generated.keyid}\nStored: ${path} (contains your PRIVATE key — do not commit or share)\n`,
         );
-      }
-    });
+        if (options.signatureAgent === undefined) {
+          stdout(
+            'No Signature-Agent set. Re-run with --signature-agent https://your-domain once you know where the directory will be hosted.\n',
+          );
+        }
+      },
+    );
 
   identity
     .command('export-directory')
@@ -550,6 +561,49 @@ export function createProgram({
         setExitCode(identityTestExitCode(verification));
       },
     );
+
+  identity
+    .command('list')
+    .description(
+      'List selectable identities/profiles. Never marks anything verified.',
+    )
+    .option('--json', 'emit the list as JSON on stdout', false)
+    .action((options: { json: boolean }) => {
+      const identities = listAgentProfiles().map((profile) => {
+        const usable =
+          profile.assurance === 'unclaimed' || profile.assurance === 'signed';
+        const entry: {
+          id: string;
+          assurance: string;
+          usable: boolean;
+          diagnosticOnly?: boolean;
+          requiresIdentityFile?: boolean;
+        } = { id: profile.id, assurance: profile.assurance, usable };
+        if (profile.assurance === 'claimed') {
+          entry.diagnosticOnly = true;
+        }
+        if (profile.assurance === 'signed') {
+          entry.requiresIdentityFile = true;
+        }
+        return entry;
+      });
+
+      if (options.json) {
+        stdout(`${JSON.stringify({ identities })}\n`);
+        return;
+      }
+
+      const lines = identities.map((entry) => {
+        const tags = [
+          entry.usable ? 'usable' : 'diagnostic-only',
+          entry.requiresIdentityFile === true ? 'needs --identity' : '',
+        ]
+          .filter((tag) => tag !== '')
+          .join(', ');
+        return `${entry.id.padEnd(20)} ${entry.assurance.padEnd(10)} ${tags}`;
+      });
+      stdout(['AgentProof identities', '', ...lines, ''].join('\n'));
+    });
 
   return program;
 }
