@@ -184,6 +184,27 @@ AgentProof only generates the correct body and headers and ships the Worker sour
 | Identity abuse / revocation                  | Per-user keys (each user runs their own directory): one key can be rotated/revoked without affecting anyone else — the opposite of a shared global key.      |
 | Unauthorized agent use                       | The private key stays with its owner; `identity list` steers agents to choose one authorized identity rather than cycle through impersonations.              |
 
+## Delegated authorization (E2, local)
+
+E2 adds the layer between "this agent is who it says it is" and "this agent is authorized by the user to do this". It is a **local, offline demonstration** built on existing standards — not a new token format.
+
+**Three keys, three layers** (kept strictly separate):
+
+- **AgentProof Identity Key** → HTTP Message Signatures / Web Bot Auth → _who the agent is_ (IDENTITY). Untouched by E2.
+- **DPoP Key** → the DPoP proof → _possession of the key bound to the token_ (PROOF-OF-POSSESSION).
+- **Issuer Key** → signs the access token → _what the user delegated_ (AUTHORIZATION).
+
+So `SIGNED ≠ AUTHORIZED` and `EXTERNALLY VERIFIED ≠ USER AUTHORIZED`: holding a key never grants authorization — only a user-delegated, key-bound token does.
+
+**Standards used:** JWT access token ([RFC 9068](https://www.rfc-editor.org/rfc/rfc9068), `typ: at+jwt`) with `iss/sub/aud/client_id/iat/nbf/exp/jti`; audience restriction via the Resource Indicator ([RFC 8707](https://www.rfc-editor.org/rfc/rfc8707)) → `aud`; granularity via Rich Authorization Requests ([RFC 9396](https://www.rfc-editor.org/rfc/rfc9396)) `authorization_details`; sender-constraint via DPoP ([RFC 9449](https://www.rfc-editor.org/rfc/rfc9449), `cnf.jkt` + proof `htm/htu/ath/iat/jti`); `alg: Ed25519` ([RFC 9864](https://www.rfc-editor.org/rfc/rfc9864)); [RFC 8725](https://www.rfc-editor.org/rfc/rfc8725) JWT BCP (explicit algorithm allowlist, never `none`). Signing/verification use the [`jose`](https://github.com/panva/jose) library — no hand-rolled JOSE.
+
+- `resource`/`aud` decides **which** Resource Server may accept the token; `authorization_details` decides **what** it may do there.
+- The `authorization_details` `type` (`https://agentproof.local/rar/http-resource`) is an **experimental, project-local identifier — not an IETF-registered RAR type**.
+
+**What E2 demonstrates:** a Resource Server can verify and enforce a limited, signed, audience-restricted, sender-constrained delegation. **What it does NOT:** real OAuth, real user authentication, or real consent. The issuer is a **local test fixture / delegation issuer**, not a production Authorization Server. The Resource Server is a local, in-process function (no network, no DB); its replay store is an in-memory `Set<jti>` (not distributed) and its clock is injectable.
+
+Delegated decisions reuse the E1 `decision` vocabulary with a distinct reason set and `basis: "delegation"` (so an HTTP-observation decision and a delegated-authorization decision are never conflated): `ok`, `missing-delegation`, `invalid-token`, `expired-token`, `not-yet-valid`, `insufficient-scope`, `wrong-resource`, `wrong-method`, `key-binding-mismatch`, `invalid-dpop`, `replay-detected`. A protected resource with no delegation is **`NEEDS_USER` / `missing-delegation`** (the next step is to obtain the user's consent), distinct from a _presented-but-failed_ credential, which is `NOT_AUTHORIZED`.
+
 ## Development
 
 | Script                 | What it does                   |
